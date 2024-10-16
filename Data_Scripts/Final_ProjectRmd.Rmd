@@ -1,0 +1,326 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, warning = F, message = F}
+library(dimRed)
+library(fields)
+library(plot3D)
+library(plotly)
+library(ggplot2)
+library(MASS)
+library(tidyverse)
+library(factoextra)
+library(ggfortify)
+library(gridExtra)
+
+```
+
+```{r}
+# Read data
+df <- read.csv("/Users/trucle/Desktop/MATH250/Project/working/features_data.csv",
+                header = TRUE)
+```
+
+```{r}
+# Check for any NAs
+which(is.na(df))
+```
+```{r}
+# Remove all NA rows and save to new df
+df_na <- df %>% drop_na()
+
+audio <- subset(df_na, genre_id %in% c(1,4,11,12))
+```
+
+
+# Non-Uniformly Distributed Data
+
+## PCA
+
+```{r}
+
+#PCA
+# Normalize and center the data since the scaling is off 
+pca_audio <- prcomp(audio[,c(3:58)], scale = T, center = T)
+
+plot_dat <-
+      data.frame(PC1 = pca_audio$x[, 1],
+                 PC2 = pca_audio$x[, 2],
+                 PC3 = pca_audio$x[, 3],
+                 label = audio$genre_id)
+
+# For PC1 and PC2
+ggplot(plot_dat,
+       aes(x = PC1, y = PC2, color = as.factor(label))) +
+  geom_point(alpha = .75, size = 2) +
+  theme_minimal() +
+  ggtitle("PCA on Music Samples") +
+  theme(plot.title = element_text(hjust = 0.5, size=18)) +
+  theme(legend.position="bottom") +
+  scale_color_discrete(name="Genre:",
+                       labels=c("1 - Rock", "4 - Hip-Hop", "11 - Classical", "12 - Historical/Old-Time", "13 - Jazz"))
+
+```
+
+```{r}
+# Looking at the loading
+
+autoplot(pca_audio,
+         loadings = TRUE, loadings.colour = 'black',
+         loadings.label = TRUE, loadings.label.size = 4, alpha = 0) + 
+  theme_linedraw() +
+  labs(title = "PCA Loading") +
+  theme(plot.title = element_text(hjust = 0.5, size=18))
+```
+
+```{r}
+PC1 <- fviz_contrib(pca_audio, choice = "var", axes = 1,fill = "#1AA7EC",color = "#1AA7EC", top = 30, xtickslab.rt = 90)
+PC2 <- fviz_contrib(pca_audio, choice = "var", axes = 2,fill = "#1AA7EC",color = "#1AA7EC", , top = 30, xtickslab.rt = 90)
+```
+
+```{r}
+PC1
+```
+
+```{r}
+PC2
+```
+
+```{r}
+fviz_screeplot(pca_audio, addlabels = TRUE, barfill = "#0041C2", barcolor = "#151B54", linecolor = "black")
+
+```
+
+```{r}
+# Computing how many PCS needed to get 95% variance captured
+pca_95_idx <-
+  which((cumsum(pca_audio$sdev^2) /
+          sum(pca_audio$sdev^2)) < .95)
+
+pca_95_idx
+```
+
+## LDA
+```{r}
+# Performing dimension reduction on data, keeping on the first 24 CPs that account for 95% of variance in the data
+audio_df <- as.data.frame(pca_audio$x[, pca_95_idx]) |>
+   mutate(label = audio$genre_id)
+
+# Performing LDA
+lda_audio <- lda(label ~., audio_df)
+
+# Getting the first 3 Linear Discriminants
+ld1 <- as.vector(pca_audio$x[, pca_95_idx] %*% lda_audio$scaling[,1])
+ld2 <- as.vector(pca_audio$x[, pca_95_idx] %*% lda_audio$scaling[,2])
+ld3 <- as.vector(pca_audio$x[, pca_95_idx] %*% lda_audio$scaling[,3])
+
+# Putting the new data into a new DF
+plot_dat <- data.frame(
+  index = 1:nrow(audio),
+  ld1 = ld1,
+  ld2 = ld2,
+  ld3 = ld3,
+  label = audio$genre_id
+)
+
+# Calculating the centroid of each class 
+centroid_dat <- plot_dat |>
+  group_by(label) |>
+  summarize(ld1 = mean(ld1), ld2 = mean(ld2))
+
+ggplot(plot_dat, aes(x = ld1, y = ld2, color = as.factor(label))) +
+  geom_point(alpha = .75, size = 2) +
+  theme_minimal() +
+  ggtitle("Genre Classification Using the Original Dataset") +
+  theme(plot.title = element_text(hjust = 0.5, face="bold"), axis.text=element_text(size=12),
+        axis.title=element_text(size=14,face="bold")) +
+  theme(legend.position="bottom", legend.title=element_text(size=12, face="bold"), 
+        legend.text=element_text(size=12)) +
+  scale_color_discrete(name="Genre:",
+                       labels=c("1 - Rock", "4 - Hip-Hop", "11 - Classical", "12 - Historical/ Old-Time")) +
+  theme(legend.position="bottom") +
+  xlab("LD1") + ylab("LD2") +
+  geom_label(data = centroid_dat, aes(label = label),
+             size = 7, show.legend = F)
+
+```
+
+```{r}
+plot_dat <- data.frame(
+  index = 1:nrow(audio),
+  ld1 = ld1,
+  ld2 = ld2,
+  ld3 = ld3,
+  label = audio$genre_id
+)
+
+centroid_dat <- plot_dat |>
+  group_by(label) |>
+  summarize(ld1 = mean(ld1), ld3 = mean(ld3))
+
+ggplot(plot_dat, aes(x = ld1, y = ld3, color = as.factor(label))) +
+  geom_point(alpha = .75, size = 2) +
+  theme_minimal() +
+  ggtitle("Genre Classification Using the Original Dataset") +
+  theme(plot.title = element_text(hjust = 0.5, face="bold"), axis.text=element_text(size=12),
+        axis.title=element_text(size=14,face="bold")) +
+  theme(legend.position="bottom", legend.title=element_text(size=12, face="bold"), 
+        legend.text=element_text(size=12)) +
+  scale_color_discrete(name="Genre",
+                       labels=c("1 - Rock", "4 - Hip-Hop", "11 - Classical", "12 - Historical/ Old-Time")) +
+  xlab("LD1") + ylab("LD3") +
+  theme(legend.position="bottom") +
+  geom_label(data = centroid_dat, aes(label = label),
+             size = 7, show.legend = F)
+
+```
+
+```{r}
+lda_predict <- predict(lda_audio)
+audio_table <- table(audio$genre_id, lda_predict$class)
+audio_table
+
+sum(diag(audio_table))/sum(audio_table)
+
+lda_audio$prior
+```
+
+# Uniformly Distributed random samples for each of the genres
+
+```{r}
+# Subset each genre to make all classes have the same number observations as the smallest class
+
+genre_1 = subset(df, genre_id == 1)[0:306,]
+genre_4 = subset(df, genre_id == 4)[0:306,]
+genre_11 = subset(df, genre_id == 11)[0:306,]
+genre_12 = subset(df, genre_id == 12)[0:306,]
+df_unif <- rbind(genre_1, genre_4, genre_11, genre_12)[,c(1:58)] 
+```
+
+```{r}
+pca_audio_unif <- prcomp(df_unif[,-c(1,2)], scale = T, center = T)
+
+plot_dat <-
+      data.frame(PC1 = pca_audio_unif$x[, 1],
+                 PC2 = pca_audio_unif$x[, 2],
+                 PC3 = pca_audio_unif$x[, 3],
+                 label = df_unif$genre_id)
+
+
+ggplot(plot_dat,
+           aes(x = PC1, y = PC2, color = as.factor(label))) +
+      geom_point(alpha = .75, size = 2) +
+      theme_minimal() +
+      ggtitle("PCA on Uniformly Distributed Music Samples") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_color_discrete(name="Genre",
+                       labels=c("1 - Rock", "4 - Hip-Hop", "11 - Classical", "12 - Historical/Old-Time", "13 - Jazz"))
+
+
+```
+```{r}
+autoplot(pca_audio_unif,
+         loadings = TRUE, loadings.colour = 'black',
+         loadings.label = TRUE, loadings.label.size = 4, alpha = 0) + 
+  labs(title = "PCA Loading") +
+  theme_linedraw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18))
+
+```
+
+```{r}
+PC1 <- fviz_contrib(pca_audio_unif, choice = "var", axes = 1,fill = "#1AA7EC",color = "#1AA7EC", top = 30, xtickslab.rt = 90)
+PC2 <- fviz_contrib(pca_audio_unif, choice = "var", axes = 2,fill = "#1AA7EC",color = "#1AA7EC", top = 30, xtickslab.rt = 90)
+```
+
+```{r}
+PC1
+```
+
+```{r}
+PC2
+```
+
+```{r}
+fviz_screeplot(pca_audio_unif, addlabels = TRUE, barfill = "#0041C2", barcolor = "#151B54", linecolor = "black")
+
+```
+
+```{r}
+pca_95_idx <-
+  which((cumsum(pca_audio_unif$sdev^2) /
+          sum(pca_audio_unif$sdev^2)) < .95)
+pca_95_idx
+```
+
+```{r}
+audio_df_unif <- as.data.frame(pca_audio_unif$x[, pca_95_idx]) |>
+   mutate(label = df_unif$genre_id)
+
+lda_audio_unif <- lda(label ~., audio_df_unif)
+
+ld1_unif <- as.vector(pca_audio_unif$x[, pca_95_idx] %*% lda_audio_unif$scaling[,1])
+ld2_unif <- as.vector(pca_audio_unif$x[, pca_95_idx] %*% lda_audio_unif$scaling[,2])
+ld3_unif <- as.vector(pca_audio_unif$x[, pca_95_idx] %*% lda_audio_unif$scaling[,3])
+
+plot_dat <- data.frame(
+  index = 1:nrow(df_unif),
+  ld1 = ld1_unif,
+  ld2 = ld2_unif,
+  ld3 = ld3_unif,
+  label = df_unif$genre_id
+)
+
+centroid_dat <- plot_dat |>
+  group_by(label) |>
+  summarize(ld1 = mean(ld1), ld3 = mean(ld3))
+
+ggplot(plot_dat, aes(x = ld1, y = ld3, color = as.factor(label))) +
+  geom_point(alpha = .75, size = 2) +
+  theme_minimal() +
+  ggtitle("Genre Classification Using the Uniformly Distributed Dataset") +
+  theme(plot.title = element_text(hjust = 0.5, face="bold"), axis.text=element_text(size=12),
+        axis.title=element_text(size=14,face="bold")) +
+  theme(legend.position="bottom", legend.title=element_text(size=12, face="bold"), 
+        legend.text=element_text(size=12)) +
+  scale_color_discrete(name="Genre",
+                       labels=c("1 - Rock", "4 - Hip-Hop", "11 - Classical", "12 - Historical/ Old-Time")) +
+  xlab("LD1") + ylab("LD3") +
+  geom_label(data = centroid_dat, aes(label = label),
+             size = 7, show.legend = F)
+
+```
+
+```{r}
+centroid_dat <- plot_dat |>
+  group_by(label) |>
+  summarize(ld1 = mean(ld1), ld2 = mean(ld2))
+
+ggplot(plot_dat, aes(x = ld1, y = ld2, color = as.factor(label))) +
+  geom_point(alpha = .75, size = 2) +
+  theme_minimal() +
+  ggtitle("Genre Classification Using the Uniformly Distributed Dataset") +
+  theme(plot.title = element_text(hjust = 0.5, face="bold"), axis.text=element_text(size=12),
+        axis.title=element_text(size=14,face="bold")) +
+  theme(legend.position="bottom", legend.title=element_text(size=12, face="bold"), 
+        legend.text=element_text(size=12)) +
+  scale_color_discrete(name="Genre:",
+                       labels=c("1 - Rock", "4 - Hip-Hop", "11 - Classical", "12 - Historical/ Old-Time")) +
+  xlab("LD1") + ylab("LD2") +
+  geom_label(data = centroid_dat, aes(label = label),
+             size = 7, show.legend = F)
+
+```
+```{r}
+unif_predict <- predict(lda_audio_unif)
+unif_table <- table(df_unif$genre_id, unif_predict$class)
+unif_table
+
+sum(diag(unif_table))/sum(unif_table)
+
+lda_audio_unif$prior
+```
+
+
